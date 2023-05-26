@@ -3,7 +3,7 @@ https://blog.csdn.net/qq_38650944/article/details/123841529
 http://www.taodudu.cc/news/show-5151902.html
 
 ## Personal Note
-[Note](Note.md)
+[Note](NOTE.md)
 
 ## Overview
 
