@@ -23,6 +23,7 @@
 
 namespace licalib {
 
+// 输入TrajectoryManager和激光雷达里程计
 bool InertialInitializer::EstimateRotation(
         TrajectoryManager::Ptr traj_manager,
         const Eigen::aligned_vector<LiDAROdometry::OdomData>& odom_data) {
@@ -31,7 +32,9 @@ bool InertialInitializer::EstimateRotation(
   std::shared_ptr<kontiki::trajectories::SplitTrajectory> p_traj
           = traj_manager->getTrajectory();
 
-  Eigen::aligned_vector<Eigen::Matrix4d> A_vec;
+  Eigen::aligned_vector<Eigen::Matrix4d> A_vec; // 记录imu和lidar的变化
+
+  // 遍历所有odom
   for (size_t j = 1; j < odom_data.size(); ++j) {
     size_t i = j - 1;
     double ti = odom_data.at(i).timestamp;
@@ -40,18 +43,22 @@ bool InertialInitializer::EstimateRotation(
       break;
     auto result_i = p_traj->Evaluate(ti, flags);
     auto result_j = p_traj->Evaluate(tj, flags);
+
+    // TrajectoryManager得到的imu两帧间的旋转四元数（以两帧lidar的时间戳作为时间间隔）
     Eigen::Quaterniond delta_qij_imu = result_i->orientation.conjugate()
                                        * result_j->orientation;
 
     Eigen::Matrix3d R_Si_toS0 = odom_data.at(i).pose.topLeftCorner<3,3>();
     Eigen::Matrix3d R_Sj_toS0 = odom_data.at(j).pose.topLeftCorner<3,3>();
     Eigen::Matrix3d delta_ij_sensor = R_Si_toS0.transpose() * R_Sj_toS0;
+    // 激光雷达里程计得到的lidar两帧间的旋转四元数
     Eigen::Quaterniond delta_qij_sensor(delta_ij_sensor);
 
     Eigen::AngleAxisd R_vector1(delta_qij_sensor.toRotationMatrix());
     Eigen::AngleAxisd R_vector2(delta_qij_imu.toRotationMatrix());
+
     double delta_angle = 180 / M_PI * std::fabs(R_vector1.angle() - R_vector2.angle());
-    double huber = delta_angle > 1.0 ? 1.0/delta_angle : 1.0;
+    double huber = delta_angle > 1.0 ? 1.0/delta_angle : 1.0; // 不同位姿的权重 论文中eq(11)
 
     Eigen::Matrix4d lq_mat = mathutils::LeftQuatMatrix(delta_qij_sensor);
     Eigen::Matrix4d rq_mat = mathutils::RightQuatMatrix(delta_qij_imu);
@@ -61,10 +68,13 @@ bool InertialInitializer::EstimateRotation(
   if (valid_size < 15) {
     return false;
   }
+
+  // 构建超定方程，见论文中eq(10)
   Eigen::MatrixXd A(valid_size * 4, 4);
   for (size_t i = 0; i < valid_size; ++i)
     A.block<4, 4>(i * 4, 0) = A_vec.at(i);
 
+  // 使用svd求解超定方程
   Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
   Eigen::Matrix<double, 4, 1> x = svd.matrixV().col(3);

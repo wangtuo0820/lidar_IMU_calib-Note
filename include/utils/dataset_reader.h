@@ -73,7 +73,7 @@ private:
   double start_time_;
   double end_time_;
 
-  VelodyneCorrection::Ptr p_LidarConvert_;
+  VelodyneCorrection::Ptr p_LidarConvert_; // 定义在include/utils/vlp_common.h
 
   LidarModelType lidar_model_;
 
@@ -98,7 +98,7 @@ public:
     }
   }
 
-  bool read(const std::string path,
+  void read(const std::string path,
             const std::string imu_topic,
             const std::string lidar_topic,
             const double bag_start = -1.0,
@@ -110,6 +110,8 @@ public:
 
     init();
 
+    // https://zhuanlan.zhihu.com/p/438792296 介绍了rosbag::View的用法
+    // rosbag::view是rosbag::MessageInstance的集合
     rosbag::View view;
     {
       std::vector<std::string> topics;
@@ -117,40 +119,45 @@ public:
       topics.push_back(lidar_topic);
 
       rosbag::View view_full;
-      view_full.addQuery(*data_->bag_);
+      view_full.addQuery(*data_->bag_); // 将所有的数据加入view, 是为了获取bag的时间信息
       ros::Time time_init = view_full.getBeginTime();
+
       time_init += ros::Duration(bag_start);
       ros::Time time_finish = (bag_durr < 0)?
                               view_full.getEndTime() : time_init + ros::Duration(bag_durr);
-      view.addQuery(*data_->bag_, rosbag::TopicQuery(topics), time_init, time_finish);
+
+      view.addQuery(*data_->bag_, rosbag::TopicQuery(topics), time_init, time_finish); // view收听imu_topic和lidar_topic
     }
 
-    for (rosbag::MessageInstance const m : view) {
+    for (rosbag::MessageInstance const m : view) { // 遍历所有message, 记为m
       const std::string &topic = m.getTopic();
 
+      // 处理lidar数据，将数据添加到data_->scan_data_中
       if (lidar_topic == topic) {
-        TPointCloud pointcloud;
+        TPointCloud pointcloud; // TPointCloud格式为pcl::PointCloud<PointXYZIT>
         double timestamp = 0;
 
+        // 可以处理velodyne_msgs/VelodyneScan和sensor_msgs/PointCloud2两种
         if (m.getDataType() == std::string("velodyne_msgs/VelodyneScan")) {
           velodyne_msgs::VelodyneScan::ConstPtr vlp_msg =
-                  m.instantiate<velodyne_msgs::VelodyneScan>();
+                  m.instantiate<velodyne_msgs::VelodyneScan>(); // 将MessageInstance转为velodyne_msgs::VelodyneScan
           timestamp = vlp_msg->header.stamp.toSec();
-          p_LidarConvert_->unpack_scan(vlp_msg, pointcloud);
+          p_LidarConvert_->unpack_scan(vlp_msg, pointcloud); // 将velodyne_msgs::VelodyneScan转为TPointCloud形式
         }
         if (m.getDataType() == std::string("sensor_msgs/PointCloud2")) {
           sensor_msgs::PointCloud2::ConstPtr scan_msg =
-                  m.instantiate<sensor_msgs::PointCloud2>();
+                  m.instantiate<sensor_msgs::PointCloud2>(); // 将MessageInstance转为sensor_msgs::PointCloud2
           timestamp = scan_msg->header.stamp.toSec();
-          p_LidarConvert_->unpack_scan(scan_msg, pointcloud);
+          p_LidarConvert_->unpack_scan(scan_msg, pointcloud); // 将sensor_msgs::PointCloud2转为TPointCloud形式
         }
 
         data_->scan_data_.emplace_back(pointcloud);
         data_->scan_timestamps_.emplace_back(timestamp);
       }
 
+      // 处理imu数据，将数据添加到data_->imu_data_中
       if (imu_topic == topic) {
-        sensor_msgs::ImuConstPtr imu_msg = m.instantiate<sensor_msgs::Imu>();
+        sensor_msgs::ImuConstPtr imu_msg = m.instantiate<sensor_msgs::Imu>(); // 将MessageInstance转为sensor_msgs::Imu
         double time = imu_msg->header.stamp.toSec();
 
         data_->imu_data_.emplace_back();
@@ -184,12 +191,14 @@ public:
            && scan_timestamps.back() > imu_data.front().timestamp
            && "Unvalid dataset. Check your dataset.. ");
 
+    // 将第一帧lidar前的imu去掉
     if (scan_timestamps_.front() > imu_data_.front().timestamp) {
       start_time_ = scan_timestamps_.front();
       while (imu_data_.front().timestamp < start_time_)
         imu_data_.erase(imu_data_.begin());
 
     } else {
+        // 将早于start_time_的lidar帧去掉
       while ((*std::next(scan_timestamps_.begin())) < start_time_) {
         scan_data_.erase(scan_data_.begin());
         scan_timestamps_.erase(scan_timestamps_.begin());
@@ -197,7 +206,13 @@ public:
       start_time_ = scan_timestamps_.front();
     }
 
+    std::cout << "scan_timestamps size: " << scan_timestamps_.size() << "  imd_data_ size: " << imu_data_.size() << std::endl;
     end_time_ = std::min(scan_timestamps_.back(), imu_data_.back().timestamp);
+
+
+    std::cout << "===================== adjustDataset ======================" << std::endl;
+        printf("start_time_: %.5f\n", start_time_);
+        printf("end_time_: %.5f\n", end_time_);
 
     while (imu_data_.back().timestamp > end_time_)
       imu_data_.pop_back();

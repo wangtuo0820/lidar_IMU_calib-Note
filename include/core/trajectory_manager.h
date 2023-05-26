@@ -74,7 +74,30 @@ public:
     double traj_end_time = end_time + time_offset_padding;
     traj_ = std::make_shared<kontiki::trajectories::SplitTrajectory>
             (knot_distance, knot_distance, traj_start_time, traj_start_time);
-    initialTrajTo(traj_end_time);
+
+    std::cout << "================= TrajectoryManager Init ==================" << std::endl;
+    printf("start_time: %.5f\n", start_time);
+    printf("end_time: %.5f\n", end_time);
+
+  std::cout << "===================== Before Init ========================" << std::endl;
+  std::cout << "NumKnots: " << traj_->SO3Spline()->NumKnots() << std::endl;
+  std::cout << "NumSegs: " << traj_->SO3Spline()->NumSegs() << std::endl;
+  //std::cout << "MinTime: " << traj_->SO3Spline()->MinTime() << std::endl;
+  //std::cout << "MaxTime: " << traj_->SO3Spline()->MaxTime() << std::endl;
+  printf("t0: %.5f\n", traj_->SO3Spline()->t0());
+  std::cout << "dt: " << traj_->SO3Spline()->dt() << std::endl;
+
+
+    initialTrajTo(traj_end_time); // 扩充航迹长度到traj_end_time
+
+  std::cout << "===================== After Init ========================" << std::endl;
+  std::cout << "NumKnots: " << traj_->SO3Spline()->NumKnots() << std::endl;
+  std::cout << "NumSegs: " << traj_->SO3Spline()->NumSegs() << std::endl;
+  printf("MinTime: %.5f\n", traj_->SO3Spline()->MinTime());
+  printf("MaxTime: %.5f\n", traj_->SO3Spline()->MaxTime());
+  printf("t0: %.5f\n", traj_->SO3Spline()->t0());
+  std::cout << "dt: " << traj_->SO3Spline()->dt() << std::endl;
+
   }
 
   void initialTrajTo(double max_time);

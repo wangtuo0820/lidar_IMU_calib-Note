@@ -33,6 +33,7 @@ std::istream& operator >> (std::istream& in, TranslationVector& t) {
 
 CalibInterface::CalibInterface(ros::NodeHandle& nh) :
         CalibrHelper(nh),
+        // 为左侧按钮赋初值，第一个参数为按钮的名字，第二个为默认状态，第三个为最低值，第四个为最高值
         show_surfel_map_("ui.show_surfel_map", true, false, true),
         show_all_association_points_("ui.show_all_associated_points", false, false, true),
         optimize_time_offset_("ui.optimize_time_offset", false, false, true),
@@ -51,7 +52,7 @@ CalibInterface::CalibInterface(ros::NodeHandle& nh) :
     initGui();
     pangolin::ColourWheel cw;
     for (int i = 0; i < 200; i++) {
-      pangolin_colors_.emplace_back(cw.GetUniqueColour());
+      pangolin_colors_.emplace_back(cw.GetUniqueColour()); // 颜色盘，用来显示surfel
     }
   } else {
     Initialization();
@@ -74,19 +75,26 @@ CalibInterface::CalibInterface(ros::NodeHandle& nh) :
 
 void CalibInterface::initGui() {
   pangolin::CreateWindowAndBind("Main", 1600, 1000);
-  glEnable(GL_DEPTH_TEST);
+  // 开启深度测试，保证某视角下像素只有一种颜色
+  glEnable(GL_DEPTH_TEST); 
   glDepthFunc(GL_LEQUAL);
 
+  // 设置相机的投影方程
   s_cam_.SetProjectionMatrix(pangolin::ProjectionMatrix(1600, 1000, 2000, 2000,
                                                         800, 500, 0.1, 1000));
   s_cam_.SetModelViewMatrix(pangolin::ModelViewLookAt(0, 0, 40, 0, 0, 0,
                                                       pangolin::AxisNegY));
+
+  // 左侧控制面板
   pangolin::CreatePanel("ui").SetBounds(0.0, 1.0, 0.0,
                                         pangolin::Attach::Pix(UI_WIDTH));
+  
+  // 右侧交互视图
   pointcloud_view_display_ =  &pangolin::CreateDisplay()
           .SetBounds(0, 1.0, pangolin::Attach::Pix(UI_WIDTH), 1.0)
           .SetHandler(new pangolin::Handler3D(s_cam_));
 
+  // 按钮，第一个参数为按钮的名字，第二个是回调函数
   pangolin::Var<std::function<void(void)>> initialization(
           "ui.Initialization", std::bind(&CalibInterface::Initialization, this));
 

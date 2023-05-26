@@ -42,10 +42,11 @@ LiDAROdometry::ndtInit(double ndt_resolution) {
   return ndt_omp;
 }
 
+// 输入当前帧点云, 与全局地图进行配准，得到位姿加入odom_data_，如果是关键帧则加入全局地图中
 void LiDAROdometry::feedScan(double timestamp,
                              VPointCloud::Ptr cur_scan,
-                             Eigen::Matrix4d pose_predict,
-                             const bool update_map) {
+                             Eigen::Matrix4d pose_predict, // 上一帧的位姿
+                             const bool update_map) { // 是否更新全局地图（默认为true）
   OdomData odom_cur;
   odom_cur.timestamp = timestamp;
   odom_cur.pose = Eigen::Matrix4d::Identity();
@@ -55,19 +56,20 @@ void LiDAROdometry::feedScan(double timestamp,
     scan_in_target = cur_scan;
   } else {
     Eigen::Matrix4d T_LtoM_predict = odom_data_.back().pose * pose_predict;
-    registration(cur_scan, T_LtoM_predict, odom_cur.pose, scan_in_target);
+    registration(cur_scan, T_LtoM_predict, odom_cur.pose, scan_in_target); // 使用ndt进行点云匹配
   }
   odom_data_.push_back(odom_cur);
 
-  if (update_map) {
+  if (update_map) { // 默认为true
     updateKeyScan(cur_scan, odom_cur);
   }
 }
 
-void LiDAROdometry::registration(const VPointCloud::Ptr& cur_scan,
-                                 const Eigen::Matrix4d& pose_predict,
-                                 Eigen::Matrix4d& pose_out,
-                                 VPointCloud::Ptr scan_in_target) {
+// 调用ndt_map_进行点云匹配，得到位姿估计pose_out
+void LiDAROdometry::registration(const VPointCloud::Ptr& cur_scan, // 当前帧点云
+                                 const Eigen::Matrix4d& pose_predict, // 上一帧的位姿
+                                 Eigen::Matrix4d& pose_out, // 匹配的位姿
+                                 VPointCloud::Ptr scan_in_target) { // 矫正后的点云
   VPointCloud::Ptr p_filtered_cloud(new VPointCloud());
   downsampleCloud(cur_scan, p_filtered_cloud, 0.5);
 
@@ -77,6 +79,7 @@ void LiDAROdometry::registration(const VPointCloud::Ptr& cur_scan,
   pose_out = ndt_omp_->getFinalTransformation().cast<double>();
 }
 
+// 如果是关键帧，将点云下采样后加入map_cloud_
 void LiDAROdometry::updateKeyScan(const VPointCloud::Ptr& cur_scan,
                                   const OdomData& odom_data) {
   if (checkKeyScan(odom_data)) {
@@ -93,6 +96,7 @@ void LiDAROdometry::updateKeyScan(const VPointCloud::Ptr& cur_scan,
   }
 }
 
+// 当变动比较大时，确定为关键帧
 bool LiDAROdometry::checkKeyScan(const OdomData& odom_data) {
   static Eigen::Vector3d position_last(0,0,0);
   static Eigen::Vector3d ypr_last(0,0,0);
@@ -105,10 +109,10 @@ bool LiDAROdometry::checkKeyScan(const OdomData& odom_data) {
   Eigen::Vector3d delta_angle = ypr - ypr_last;
   for (size_t i = 0; i < 3; i++)
     delta_angle(i) = normalize_angle(delta_angle(i));
-  delta_angle = delta_angle.cwiseAbs();
+  delta_angle = delta_angle.cwiseAbs(); // 取逐个元素的绝对值
 
   if (key_frame_index_.size() == 0 || dist > 0.2
-     || delta_angle(0) > 5.0 || delta_angle(1) > 5.0 || delta_angle(2) > 5.0) {
+     || delta_angle(0) > 5.0 || delta_angle(1) > 5.0 || delta_angle(2) > 5.0) { 
     position_last = position_now;
     ypr_last = ypr;
     return true;

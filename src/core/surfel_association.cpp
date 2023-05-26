@@ -47,6 +47,7 @@ void SurfelAssociation::clearSurfelMap() {
   spoints_all_.clear();
 }
 
+// 根据ndt计算的VoxelGrid的特征向量和特征值，判断每个VoxelGrid的平面方向，将所有平面上的点加入到surfel_planes_中
 void SurfelAssociation::setSurfelMap(
         const pclomp::NormalDistributionsTransform<VPoint, VPoint>::Ptr& ndtPtr,
         double timestamp) {
@@ -56,14 +57,17 @@ void SurfelAssociation::setSurfelMap(
   //mCellSize = ndtPtr->getTargetCells().getLeafSize()(0);
 
   // check each cell
-  Eigen::Vector3i counter(0,0,0);
-  for (const auto &v : ndtPtr->getTargetCells().getLeaves()) {
+  Eigen::Vector3i counter(0,0,0); // 记录三种不同朝向的平面出现次数
+  // 遍历ndt中构建的所有VoxelGrid
+  for (const auto &v : ndtPtr->getTargetCells().getLeaves()) { // getTargetCells().getLeaves()是ndt_map中内部变量，ndt的leaf_size是ndtResolution=0.5
     auto leaf = v.second;
 
     if (leaf.nr_points < 10)
       continue;
-    int plane_type = checkPlaneType(leaf.getEvals(), leaf.getEvecs(), p_lambda_);
-    if (plane_type < 0)
+
+    // 输入每个VoxelGrid的特征值和特征向量，判断平面方向
+    int plane_type = checkPlaneType(leaf.getEvals(), leaf.getEvecs(), p_lambda_); // eigen_value(Eigen::Vector3d), eigen_vector(Eigen::Matrix3d)
+    if (plane_type < 0) // 不是平面
       continue;
 
     Eigen::Vector4d surfCoeff;
@@ -72,18 +76,19 @@ void SurfelAssociation::setSurfelMap(
       continue;
 
     counter(plane_type) += 1;
-    SurfelPlane surfplane;
+    SurfelPlane surfplane; // 描述平面的结构体，包括平面对应的点数，平面上的点，平面的系数，平面的包络
     surfplane.cloud = leaf.pointList_;
     surfplane.cloud_inlier = *cloud_inliers;
     surfplane.p4 = surfCoeff;
     surfplane.Pi = -surfCoeff(3) * surfCoeff.head<3>();
+    surfplane.type = plane_type;
 
     VPoint min, max;
     pcl::getMinMax3D(surfplane.cloud, min, max);
     surfplane.boxMin = Eigen::Vector3d(min.x, min.y, min.z);
     surfplane.boxMax = Eigen::Vector3d(max.x, max.y, max.z);
 
-    surfel_planes_.push_back(surfplane);
+    surfel_planes_.push_back(surfplane); 
   }
 
   spoint_per_surfel_.resize(surfel_planes_.size());
@@ -91,6 +96,7 @@ void SurfelAssociation::setSurfelMap(
   std::cout << "Plane type  :" << counter.transpose()
             << "; Plane number: " << surfel_planes_.size() << std::endl;
 
+  // 将所有平面上的点云全部加到surfels_map_中
   surfels_map_.clear();
   {
     int idx = 0;
@@ -100,7 +106,7 @@ void SurfelAssociation::setSurfelMap(
 
       size_t colorType = (idx++) % color_list_.size();
       for (auto & p : cloud_rgb) {
-        p.rgba = color_list_[colorType];
+        p.rgba = color_list_[colorType]; // TODO 我想尝试把不同平面用不同颜色区分出来
       }
       surfels_map_ += cloud_rgb;
     }
@@ -108,34 +114,38 @@ void SurfelAssociation::setSurfelMap(
 }
 
 
-void SurfelAssociation::getAssociation(const VPointCloud::Ptr& scan_inM,
-                                       const TPointCloud::Ptr& scan_raw,
+// 统计每个原始点对应的去畸变点
+void SurfelAssociation::getAssociation(const VPointCloud::Ptr& scan_inM, // 去畸变后的点云
+                                       const TPointCloud::Ptr& scan_raw, // 原始点云
                                        size_t selected_num_per_ring) {
   const size_t width = scan_raw->width;
   const size_t height = scan_raw->height;
 
-  int associatedFlag[width * height];
+  int associatedFlag[width * height]; // 创建一个数组存储匹配关系
   for (unsigned int i = 0; i < width * height; i++) {
     associatedFlag[i] = -1;
   }
 
 #pragma omp parallel for num_threads(omp_get_max_threads())
-  for (int plane_id = 0; plane_id < surfel_planes_.size(); plane_id++) {
-    std::vector<std::vector<int>> ring_masks;
-    associateScanToSurfel(plane_id, scan_inM, associated_radius_, ring_masks);
+  for (int plane_id = 0; plane_id < surfel_planes_.size(); plane_id++) { // 遍历所有的平面
+    std::vector<std::vector<int>> ring_masks; // 统计每一层扫描在平面范围内的点
+    associateScanToSurfel(plane_id, scan_inM, associated_radius_, ring_masks); // associated_radius_=0.05
 
     for (int h = 0; h < height; h++) {
       if (ring_masks.at(h).size() < selected_num_per_ring*2)
         continue;
+
+      // TODO 这里具体怎么做还不太明白
       int step = ring_masks.at(h).size() / (selected_num_per_ring + 1);
       step = std::max(step, 1);
       for (int selected = 0; selected < selected_num_per_ring; selected++) {
         int w = ring_masks.at(h).at(step * (selected+1) - 1);
-        associatedFlag[h*width + w] = plane_id;
+        associatedFlag[h*width + w] = plane_id; // 记录每个位置对应的平面id
       }
     }
   }
 
+  // 统计每个原始点对应的去畸变后的点的匹配关系spoints_all_
   // in chronological order
   SurfelPoint spoint;
   for (int w = 0; w < width; w++) {
@@ -172,7 +182,7 @@ void SurfelAssociation::randomDownSample(int num_points_max) {
 
 
 void SurfelAssociation::averageDownSmaple(int num_points_max) {
-  for (const auto & v : spoint_per_surfel_) {
+  for (const auto & v : spoint_per_surfel_) { // 遍历所有的平面
     if (v.size() < 20)
       continue;
     int d_step = v.size() / num_points_max;
@@ -188,28 +198,30 @@ void SurfelAssociation::averageTimeDownSmaple(int step) {
   }
 }
 
+// 判断平面方向, 返回平面主方向
 int SurfelAssociation::checkPlaneType(const Eigen::Vector3d& eigen_value,
                                       const Eigen::Matrix3d& eigen_vector,
                                       const double& p_lambda) {
   Eigen::Vector3d sorted_vec;
   Eigen::Vector3i ind;
-  Eigen::sort_vec(eigen_value, sorted_vec, ind);
+  Eigen::sort_vec(eigen_value, sorted_vec, ind); // 将特征值从大到小排列
 
-  double p = 2*(sorted_vec[1] - sorted_vec[2]) /
+  double p = 2*(sorted_vec[1] - sorted_vec[2]) / // 参数p描述平面度是否足够明显
              (sorted_vec[2] + sorted_vec[1] + sorted_vec[0]);
 
-  if (p < p_lambda) {
+  if (p < p_lambda) { // 不是水平或垂直平面
     return -1;
   }
 
-  int min_idx = ind[2];
+  int min_idx = ind[2]; // 特征值最小的轴
   Eigen::Vector3d plane_normal = eigen_vector.block<3,1>(0, min_idx);
-  plane_normal = plane_normal.array().abs();
+  plane_normal = plane_normal.array().abs(); // 法向量全部取正
 
   Eigen::sort_vec(plane_normal, sorted_vec, ind);
-  return ind[2];
+  return ind[2]; // 返回法向量值最小的那个轴
 }
 
+// 使用RANSAC方法判断平面
 bool SurfelAssociation::fitPlane(const VPointCloud::Ptr& cloud,
                                  Eigen::Vector4d &coeffs,
                                  VPointCloud::Ptr cloud_inliers) {
@@ -249,7 +261,7 @@ double SurfelAssociation::point2PlaneDistance(Eigen::Vector3d &pt,
 
 void SurfelAssociation::associateScanToSurfel(
         const size_t& surfel_idx,
-        const VPointCloud::Ptr& scan,
+        const VPointCloud::Ptr& scan, // 去畸变后的点云
         const double& radius,
         std::vector<std::vector<int>> &ring_masks) const {
 
@@ -258,7 +270,7 @@ void SurfelAssociation::associateScanToSurfel(
   Eigen::Vector4d plane_coeffs = surfel_planes_.at(surfel_idx).p4;
 
   for (int j = 0 ; j < scan->height; j++) {
-    std::vector<int> mask_per_ring;
+    std::vector<int> mask_per_ring; // mask per column
     for (int i=0; i< scan->width; i++) {
       if (!pcl_isnan(scan->at(i,j).x) &&
           scan->at(i,j).x > box_min[0] && scan->at(i,j).x < box_max[0] &&
@@ -266,8 +278,8 @@ void SurfelAssociation::associateScanToSurfel(
           scan->at(i,j).z > box_min[2] && scan->at(i,j).z < box_max[2]) {
 
           Eigen::Vector3d point(scan->at(i,j).x, scan->at(i,j).y, scan->at(i,j).z);
-          if (point2PlaneDistance(point, plane_coeffs) <= radius) {
-            mask_per_ring.push_back(i);
+          if (point2PlaneDistance(point, plane_coeffs) <= radius) { // 点到平面的距离小于radius=0.05
+            mask_per_ring.push_back(i); 
           }
       }
     } // end of one colmun (ring)

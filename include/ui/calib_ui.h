@@ -48,16 +48,18 @@ public:
 private:
   static constexpr int UI_WIDTH = 300;
 
-  pangolin::View *pointcloud_view_display_;
-  pangolin::OpenGlRenderState s_cam_;
+  pangolin::View *pointcloud_view_display_; // 定义一个视角
+  pangolin::OpenGlRenderState s_cam_; // 定义一个相机
 
   std::vector<pangolin::Colour> pangolin_colors_;
 
+  // 左侧按钮
   pangolin::Var<bool> show_surfel_map_;
   pangolin::Var<bool> show_all_association_points_;
   pangolin::Var<bool> optimize_time_offset_;
   pangolin::Var<int>  show_lidar_frame_;
 
+  // 左侧按钮，一个3维矩阵
   pangolin::Var<TranslationVector> show_p_IinL_;
   pangolin::Var<TranslationVector> show_q_ItoL_;
   pangolin::Var<TranslationVector> show_gravity_;

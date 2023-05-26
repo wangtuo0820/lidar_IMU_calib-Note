@@ -28,6 +28,7 @@
 
 namespace licalib {
 
+// 一个基于pclomp::NormalDistributionsTransform的lidar里程计，包括关键帧检测，点云配准，得到的里程计结果保存到odom_data_
 class LiDAROdometry {
 
 public:

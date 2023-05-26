@@ -45,6 +45,7 @@ public:
     Eigen::Vector3d Pi; // Closest Point Paramization
     Eigen::Vector3d boxMin;
     Eigen::Vector3d boxMax;
+    size_t type;
     VPointCloud cloud;
     VPointCloud cloud_inlier;
   };

@@ -91,7 +91,7 @@ protected:
   double associated_radius_;
   double plane_lambda_;
 
-  std::shared_ptr<IO::LioDataset> dataset_reader_;
+  std::shared_ptr<IO::LioDataset> dataset_reader_; // 定义在include/utils/dataset_reader.h
   InertialInitializer::Ptr rotation_initializer_;
   TrajectoryManager::Ptr traj_manager_;
   LiDAROdometry::Ptr lidar_odom_;

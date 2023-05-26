@@ -37,19 +37,22 @@ public:
                               dataset_reader_(std::move(dataset)) {
   }
 
+  // 先调用这个，将每帧原始点云去畸变，加入scan_data_
   void undistortScan(bool correct_position = false) {
-    scan_data_.clear();
+    scan_data_.clear(); // 清空去畸变后的点云
 
+    // 遍历每一帧点云
     for (const TPointCloud& scan_raw: dataset_reader_->get_scan_data()) {
       Eigen::Quaterniond q_L0_to_G;
       Eigen::Vector3d p_L0_in_G;
       double scan_timestamp = pcl_conversions::fromPCL(scan_raw.header.stamp).toSec();
-      if (!traj_manager_->evaluateLidarPose(scan_timestamp, q_L0_to_G, p_L0_in_G)) {
+      if (!traj_manager_->evaluateLidarPose(scan_timestamp, q_L0_to_G, p_L0_in_G)) { // 获得激光雷达位置和姿态
         std::cout << "[ScanUndistortion] : pass " << scan_timestamp << std::endl;
         continue;
       }
 
       VPointCloud::Ptr scan_in_target(new VPointCloud);
+      // 单帧去畸变
       undistort(q_L0_to_G.conjugate(), p_L0_in_G, scan_raw,
                 scan_in_target, correct_position);
       scan_data_.insert({scan_in_target->header.stamp, scan_in_target});
@@ -62,7 +65,7 @@ public:
     Eigen::Quaterniond q_L0_to_G;
     Eigen::Vector3d p_L0_in_G;
     double map_start_time = traj_manager_->get_map_time();
-    traj_manager_->evaluateLidarPose(map_start_time, q_L0_to_G, p_L0_in_G);
+    traj_manager_->evaluateLidarPose(map_start_time, q_L0_to_G, p_L0_in_G); 
 
     for (const TPointCloud& scan_raw: dataset_reader_->get_scan_data()) {
       VPointCloud::Ptr scan_in_target(new VPointCloud);
@@ -73,13 +76,14 @@ public:
     }
   }
 
+  // 再调用这个，更新自身去畸变后的map_cloud_
   void undistortScanInMap(const Eigen::aligned_vector<LiDAROdometry::OdomData>& odom_data) {
     scan_data_in_map_.clear();
     map_cloud_ = VPointCloud::Ptr(new VPointCloud);
 
     for (size_t idx = 0; idx < dataset_reader_->get_scan_data().size(); idx++){
       auto scan_raw = dataset_reader_->get_scan_data().at(idx);
-      auto iter = scan_data_.find(scan_raw.header.stamp);
+      auto iter = scan_data_.find(scan_raw.header.stamp); // 去畸变后的点云iter
       if (iter == scan_data_.end()) {
         continue;
       }
@@ -104,6 +108,7 @@ public:
 
 private:
 
+  // 单帧去畸变，根据每个点
   void undistort(const Eigen::Quaterniond& q_G_to_target,
                  const Eigen::Vector3d& p_target_in_G,
                  const TPointCloud& scan_raw,
@@ -125,7 +130,7 @@ private:
           scan_in_target->at(w,h) = vpoint;
           continue;
         }
-        double point_timestamp = scan_raw.at(w,h).timestamp;
+        double point_timestamp = scan_raw.at(w,h).timestamp; // 获取单个扫描点的时间戳
         Eigen::Quaterniond q_Lk_to_G;
         Eigen::Vector3d p_Lk_in_G;
         if (!traj_manager_->evaluateLidarPose(point_timestamp, q_Lk_to_G, p_Lk_in_G)) {

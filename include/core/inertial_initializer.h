@@ -29,6 +29,7 @@
 namespace licalib {
 
 
+// 根据激光雷达里程计和kontiki维护的imu轨迹，使用svd分解求解一个超定方程，初步确定标定参数
 class InertialInitializer {
 
 public:
